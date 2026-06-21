@@ -12,6 +12,7 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
+  Filter,
 } from "lucide-react";
 import { WindowFrame } from "../../components/layout/WindowFrame";
 import { useAppStore } from "../../stores/useAppStore";
@@ -26,7 +27,8 @@ import dayjs from "dayjs";
 
 export function FollowScript() {
   const [activeStage, setActiveStage] = useState<ScriptStage>("opening");
-  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [adoptFilterBy, setAdoptFilterBy] = useState<string>("all");
 
   const scripts = useAppStore((s) => s.scripts);
   const scriptSuggestions = useAppStore((s) => s.scriptSuggestions);
@@ -61,6 +63,58 @@ export function FollowScript() {
       (s) => s.stage === activeStage && s.status === "pending"
     );
   }, [scriptSuggestions, activeStage]);
+
+  const adoptedSuggestions = useMemo(() => {
+    return scriptSuggestions.filter(
+      (s) => s.stage === activeStage && s.status === "adopted"
+    );
+  }, [scriptSuggestions, activeStage]);
+
+  const adoptedSourceIds = useMemo(() => {
+    return new Set(
+      (activeScript?.adoptedContents || [])
+        .map((a) => a.sourceSuggestionId)
+        .filter(Boolean) as string[]
+    );
+  }, [activeScript?.adoptedContents]);
+
+  const mergedAdoptedItems = useMemo(() => {
+    const items: {
+      id: string;
+      content: string;
+      adoptedByName: string;
+      adoptedAt: string;
+      type: "script" | "personal";
+    }[] = (activeScript?.adoptedContents || []).map((a) => ({
+      id: a.id,
+      content: a.content,
+      adoptedByName: a.adoptedByName,
+      adoptedAt: a.adoptedAt,
+      type: "script" as const,
+    }));
+    adoptedSuggestions
+      .filter((s) => !adoptedSourceIds.has(s.id))
+      .forEach((s) => {
+        items.push({
+          id: s.id,
+          content: s.content,
+          adoptedByName: s.adoptedByName || "未知",
+          adoptedAt: s.adoptedAt || s.createdAt,
+          type: "personal" as const,
+        });
+      });
+    return items;
+  }, [activeScript?.adoptedContents, adoptedSuggestions, adoptedSourceIds]);
+
+  const filteredAdoptedItems = useMemo(() => {
+    if (adoptFilterBy === "all") return mergedAdoptedItems;
+    return mergedAdoptedItems.filter((i) => i.adoptedByName === adoptFilterBy);
+  }, [mergedAdoptedItems, adoptFilterBy]);
+
+  const adopterNames = useMemo(() => {
+    const names = new Set(mergedAdoptedItems.map((i) => i.adoptedByName));
+    return Array.from(names);
+  }, [mergedAdoptedItems]);
 
   const totalPendingSuggestions = useMemo(() => {
     return scriptSuggestions.filter((s) => s.status === "pending").length;
@@ -238,6 +292,9 @@ export function FollowScript() {
                       <span className="text-xs font-medium text-primary-700">
                         {activeScript.title}
                       </span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-medium">
+                        官方话术
+                      </span>
                     </div>
                     <div className="card p-4 bg-gradient-to-br from-primary-50/50 to-white leading-relaxed text-sm">
                       {renderContent(activeScript.content)}
@@ -281,36 +338,66 @@ export function FollowScript() {
                     </div>
                   )}
 
-                  {activeScript.adoptedContents.length > 0 && (
+                  {mergedAdoptedItems.length > 0 && (
                     <div>
-                      <div className="text-xs font-medium text-blue-600 mb-2 flex items-center gap-1">
-                        <CheckCircle size={12} />
-                        团队采纳建议
-                        <span className="text-blue-400 font-normal ml-1">
-                          （{activeScript.adoptedContents.length}条）
-                        </span>
+                      <div className="text-xs font-medium text-blue-600 mb-2 flex items-center gap-1 justify-between">
+                        <div className="flex items-center gap-1">
+                          <CheckCircle size={12} />
+                          采纳流水
+                          <span className="text-blue-400 font-normal ml-1">
+                            （{mergedAdoptedItems.length}条）
+                          </span>
+                        </div>
+                        {adopterNames.length > 1 && (
+                          <div className="relative flex items-center gap-1">
+                            <Filter size={10} className="text-blue-400" />
+                            <select
+                              value={adoptFilterBy}
+                              onChange={(e) => setAdoptFilterBy(e.target.value)}
+                              className="text-[10px] text-blue-600 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 appearance-none cursor-pointer pr-4 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                            >
+                              <option value="all">全部采纳人</option>
+                              {adopterNames.map((name) => (
+                                <option key={name} value={name}>
+                                  {name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
                       <div className="space-y-2.5">
-                        {activeScript.adoptedContents.map((adopted) => (
+                        {filteredAdoptedItems.map((item) => (
                           <div
-                            key={adopted.id}
-                            className="card p-3 bg-gradient-to-br from-blue-50/60 to-white border-l-4 border-l-blue-400"
+                            key={item.id}
+                            className={cn(
+                              "card p-3 bg-gradient-to-br to-white border-l-4",
+                              item.type === "script"
+                                ? "from-blue-50/60 border-l-blue-400"
+                                : "from-cyan-50/60 border-l-cyan-400"
+                            )}
                           >
                             <div className="text-sm text-neutral-700 leading-relaxed mb-2">
-                              {adopted.content}
+                              {item.content}
                             </div>
                             <div className="flex items-center gap-3 text-[10px] text-neutral-500">
                               <span className="flex items-center gap-1">
                                 <User size={10} />
-                                {adopted.adoptedByName}
+                                {item.adoptedByName}
                               </span>
                               <span className="flex items-center gap-1">
                                 <Clock size={10} />
-                                {dayjs(adopted.adoptedAt).format("MM-DD HH:mm")}
+                                {dayjs(item.adoptedAt).format("MM-DD HH:mm")}
                               </span>
-                              <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
-                                已入脚本库
-                              </span>
+                              {item.type === "script" ? (
+                                <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
+                                  已入脚本库
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-700 font-medium">
+                                  个人采纳
+                                </span>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -435,10 +522,15 @@ export function FollowScript() {
                     {customerCalls.slice(0, 3).map((call) => (
                       <div key={call.id} className="card p-3">
                         <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs text-neutral-500">
+                          <span className="text-xs text-neutral-500 flex items-center gap-1.5">
                             {dayjs(call.startTime).format("MM-DD HH:mm")} ·{" "}
                             {Math.floor(call.duration / 60)}分
                             {call.duration % 60}秒
+                            {call.sourceTodoTaskId && (
+                              <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[9px] font-medium">
+                                从待办进入
+                              </span>
+                            )}
                           </span>
                           <span
                             className={cn(

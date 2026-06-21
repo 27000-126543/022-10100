@@ -20,6 +20,10 @@ import {
   AlertCircle,
   CheckCircle2,
   GripVertical,
+  Bookmark,
+  BookmarkCheck,
+  Save,
+  Trash2,
 } from "lucide-react";
 import { WindowFrame } from "../../components/layout/WindowFrame";
 import { useAppStore, useFilteredCustomers } from "../../stores/useAppStore";
@@ -31,6 +35,7 @@ import {
   type Customer,
   type CustomerStatus,
   type Employee,
+  type FilterPreset,
 } from "../../types";
 import { cn } from "../../lib/utils";
 import dayjs from "dayjs";
@@ -58,11 +63,14 @@ const CHANNEL_FILTERS: { value: Channel | "all"; label: string }[] = [
 ];
 
 export function CustomerPool() {
+  const currentUser = useAppStore((s) => s.currentUser);
+  const isManager = currentUser.role === "manager";
+
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<CustomerStatus | "all">("all");
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [projectFilters, setProjectFilters] = useState<string[]>([]);
-  const [onlyMine, setOnlyMine] = useState(true);
+  const [onlyMine, setOnlyMine] = useState(!isManager);
   const [onlyUnclaimed, setOnlyUnclaimed] = useState(false);
   const [showProjectFilter, setShowProjectFilter] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -72,6 +80,8 @@ export function CustomerPool() {
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [distributeEvenly, setDistributeEvenly] = useState(false);
   const [assignSuccess, setAssignSuccess] = useState(false);
+  const [showPresetPanel, setShowPresetPanel] = useState(false);
+  const [presetName, setPresetName] = useState("");
 
   const setActiveCustomer = useAppStore((s) => s.setActiveCustomer);
   const activeCustomerId = useAppStore((s) => s.activeCustomerId);
@@ -79,16 +89,16 @@ export function CustomerPool() {
   const markCustomerInvalid = useAppStore((s) => s.markCustomerInvalid);
   const assignCustomers = useAppStore((s) => s.assignCustomers);
   const openWindow = useAppStore((s) => s.openWindow);
-  const currentUser = useAppStore((s) => s.currentUser);
   const allCustomers = useAppStore((s) => s.customers);
   const employees = useAppStore((s) => s.employees);
+  const filterPresets = useAppStore((s) => s.filterPresets);
+  const saveFilterPreset = useAppStore((s) => s.saveFilterPreset);
+  const deleteFilterPreset = useAppStore((s) => s.deleteFilterPreset);
 
   const agents = useMemo(
     () => employees.filter((e) => e.role === "agent"),
     [employees]
   );
-
-  const isManager = currentUser.role === "manager";
 
   const filtered = useFilteredCustomers({
     keyword,
@@ -181,6 +191,43 @@ export function CustomerPool() {
   };
 
   const clearProjectFilters = () => setProjectFilters([]);
+
+  const getPresetSummary = (preset: FilterPreset) => {
+    const parts: string[] = [];
+    if (preset.channel !== "all") parts.push(CHANNEL_LABELS[preset.channel]);
+    if (preset.status !== "all") {
+      const sf = STATUS_FILTERS.find((f) => f.value === preset.status);
+      if (sf) parts.push(sf.label);
+    }
+    if (preset.projects.length > 0) parts.push(`${preset.projects.length}个项目`);
+    if (preset.onlyUnclaimed) parts.push("未分配");
+    if (preset.createTimeFrom || preset.createTimeTo) parts.push("日期筛选");
+    return parts.length > 0 ? parts.join(" · ") : "无筛选条件";
+  };
+
+  const applyPreset = (preset: FilterPreset) => {
+    setChannelFilter(preset.channel);
+    setStatusFilter(preset.status);
+    setProjectFilters(preset.projects);
+    setOnlyUnclaimed(preset.onlyUnclaimed);
+    setCreateTimeFrom(preset.createTimeFrom);
+    setCreateTimeTo(preset.createTimeTo);
+    setShowPresetPanel(false);
+  };
+
+  const handleSavePreset = () => {
+    if (!presetName.trim()) return;
+    saveFilterPreset({
+      name: presetName.trim(),
+      channel: channelFilter,
+      status: statusFilter,
+      projects: projectFilters,
+      onlyUnclaimed,
+      createTimeFrom,
+      createTimeTo,
+    });
+    setPresetName("");
+  };
 
   const statCards = isManager
     ? [
@@ -288,6 +335,82 @@ export function CustomerPool() {
                       确定
                     </button>
                   </div>
+                </div>
+              )}
+            </div>
+
+            <div className="relative">
+              <button
+                onClick={() => setShowPresetPanel(!showPresetPanel)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 rounded-md border text-xs transition-all",
+                  filterPresets.length > 0
+                    ? "bg-amber-50 border-amber-200 text-amber-700"
+                    : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                )}
+              >
+                {filterPresets.length > 0 ? <BookmarkCheck size={13} /> : <Bookmark size={13} />}
+                <span>方案</span>
+                {filterPresets.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold">
+                    {filterPresets.length}
+                  </span>
+                )}
+              </button>
+
+              {showPresetPanel && (
+                <div className="absolute top-full left-0 mt-2 w-80 z-50 card p-3 shadow-window animate-slide-up">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-neutral-700">筛选方案</span>
+                    <button
+                      onClick={() => setShowPresetPanel(false)}
+                      className="text-neutral-400 hover:text-neutral-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <input
+                      className="input text-xs flex-1"
+                      placeholder="输入方案名称..."
+                      value={presetName}
+                      onChange={(e) => setPresetName(e.target.value)}
+                    />
+                    <button
+                      onClick={handleSavePreset}
+                      disabled={!presetName.trim()}
+                      className="px-3 py-2 rounded-md text-xs font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <Save size={12} />
+                      保存
+                    </button>
+                  </div>
+                  {filterPresets.length > 0 ? (
+                    <div className="space-y-1.5 max-h-48 overflow-auto">
+                      {filterPresets.map((preset) => (
+                        <div
+                          key={preset.id}
+                          className="flex items-center gap-2 p-2 rounded-lg bg-neutral-50 hover:bg-neutral-100 transition-all group"
+                        >
+                          <button
+                            onClick={() => applyPreset(preset)}
+                            className="flex-1 text-left min-w-0"
+                          >
+                            <div className="text-xs font-medium text-neutral-800 truncate">{preset.name}</div>
+                            <div className="text-[10px] text-neutral-400 truncate">{getPresetSummary(preset)}</div>
+                          </button>
+                          <button
+                            onClick={() => deleteFilterPreset(preset.id)}
+                            className="text-neutral-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-neutral-400 text-center py-4">暂无保存的方案</div>
+                  )}
                 </div>
               )}
             </div>
@@ -631,6 +754,17 @@ export function CustomerPool() {
                   <div className="text-lg font-semibold text-emerald-700">分配成功！</div>
                   <div className="text-sm text-neutral-500 mt-1">
                     {selectedIds.size} 条客资已分配给 {selectedAssignees.length} 名坐席
+                  </div>
+                  <div className="mt-4 flex items-center gap-3 flex-wrap justify-center">
+                    {selectedAssignees.map((agentId) => {
+                      const agent = agents.find((a) => a.id === agentId);
+                      const count = allCustomers.filter((c) => c.claimedBy === agentId).length;
+                      return (
+                        <span key={agentId} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs border border-emerald-200">
+                          {agent?.name || "未知"} {count}条待跟进
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
               ) : (

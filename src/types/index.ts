@@ -64,6 +64,7 @@ export interface CallRecord {
   recordingUrl?: string;
   qaReviewed?: boolean;
   qaScore?: number;
+  sourceTodoTaskId?: string;
 }
 
 export interface Booking {
@@ -279,3 +280,15 @@ export const REJECT_REASONS = [
   "不信任效果",
   "害怕疼痛/风险",
 ];
+
+export interface FilterPreset {
+  id: string;
+  name: string;
+  channel: Channel | "all";
+  status: CustomerStatus | "all";
+  projects: string[];
+  onlyUnclaimed: boolean;
+  createTimeFrom: string;
+  createTimeTo: string;
+  createdAt: string;
+}

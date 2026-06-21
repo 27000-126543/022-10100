@@ -15,6 +15,7 @@ import type {
   Channel,
   StatsData,
   ScriptStage,
+  FilterPreset,
 } from "../types";
 import {
   generateMockCustomers,
@@ -40,13 +41,16 @@ interface AppState {
   windows: WindowState[];
   activeCustomerId: string | null;
   activeCallId: string | null;
+  activeTodoTaskId: string | null;
   isOnCall: boolean;
   callDuration: number;
 
   stats: StatsData;
+  filterPresets: FilterPreset[];
 
   setActiveCustomer: (id: string | null) => void;
   setCurrentUser: (userId: string) => void;
+  setActiveTodoTaskId: (id: string | null) => void;
   startCall: (customerId: string) => void;
   endCall: () => void;
   incrementCallDuration: () => void;
@@ -82,6 +86,9 @@ interface AppState {
   }) => void;
   completeTodoTask: (id: string) => void;
   updateTodoTask: (id: string, data: Partial<TodoTask>) => void;
+
+  saveFilterPreset: (preset: Omit<FilterPreset, "id" | "createdAt">) => void;
+  deleteFilterPreset: (id: string) => void;
 
   openWindow: (key: WindowKey) => void;
   closeWindow: (key: WindowKey) => void;
@@ -172,6 +179,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   windows: initialWindows,
   activeCustomerId: initialCustomers[2]?.id ?? null,
   activeCallId: null,
+  activeTodoTaskId: null,
   isOnCall: false,
   callDuration: 0,
 
@@ -187,7 +195,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     employeeRanking: mockEmployees.filter((e) => e.role === "agent"),
   },
 
+  filterPresets: [],
+
   setActiveCustomer: (id) => set({ activeCustomerId: id }),
+
+  setActiveTodoTaskId: (id) => set({ activeTodoTaskId: id }),
 
   startCall: (customerId) => {
     const customer = get().customers.find((c) => c.id === customerId);
@@ -223,11 +235,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   incrementCallDuration: () => set((s) => ({ callDuration: s.callDuration + 1 })),
 
   saveCallResult: (data) => {
-    const { activeCallId, callRecords, customers, activeCustomerId } = get();
+    const { activeCallId, callRecords, customers, activeCustomerId, activeTodoTaskId } = get();
     if (!activeCallId) return;
 
+    const callData = { ...data };
+    if (activeTodoTaskId) {
+      callData.sourceTodoTaskId = activeTodoTaskId;
+    }
+
     const updatedRecords = callRecords.map((c) =>
-      c.id === activeCallId ? { ...c, ...data } : c
+      c.id === activeCallId ? { ...c, ...callData } : c
     );
 
     let updatedCustomers = customers;
@@ -257,6 +274,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       callRecords: updatedRecords,
       customers: updatedCustomers,
       activeCallId: null,
+      activeTodoTaskId: null,
       callDuration: 0,
     });
   },
@@ -465,6 +483,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       todoTasks: state.todoTasks.map((t) =>
         t.id === id ? { ...t, ...data } : t
       ),
+    }));
+  },
+
+  saveFilterPreset: (preset) => {
+    const newPreset: FilterPreset = {
+      id: `preset_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      ...preset,
+    };
+    set((state) => ({
+      filterPresets: [...state.filterPresets, newPreset],
+    }));
+  },
+
+  deleteFilterPreset: (id) => {
+    set((state) => ({
+      filterPresets: state.filterPresets.filter((p) => p.id !== id),
     }));
   },
 
