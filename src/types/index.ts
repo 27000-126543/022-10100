@@ -94,6 +94,34 @@ export interface ScriptSuggestion {
   employeeName?: string;
   status: "pending" | "adopted" | "rejected";
   createdAt: string;
+  adoptedBy?: string;
+  adoptedByName?: string;
+  adoptedAt?: string;
+}
+
+export interface TodoTask {
+  id: string;
+  customerId: string;
+  customerName: string;
+  phoneMasked: string;
+  employeeId: string;
+  scheduledTime: string;
+  taskType: "follow_up" | "booking";
+  relatedCallRecordId?: string;
+  relatedBookingId?: string;
+  notes?: string;
+  status: "pending" | "completed" | "missed";
+  completedAt?: string;
+  createdAt: string;
+}
+
+export interface ScriptAdoptedContent {
+  id: string;
+  content: string;
+  sourceSuggestionId?: string;
+  adoptedBy: string;
+  adoptedByName: string;
+  adoptedAt: string;
 }
 
 export interface QAReviewItem {
@@ -141,6 +169,7 @@ export interface Script {
   content: string;
   keywords: string[];
   warnings: string[];
+  adoptedContents: ScriptAdoptedContent[];
 }
 
 export interface WindowState {

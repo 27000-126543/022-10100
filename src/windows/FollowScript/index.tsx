@@ -33,6 +33,7 @@ export function FollowScript() {
   const updateScriptSuggestionStatus = useAppStore(
     (s) => s.updateScriptSuggestionStatus
   );
+  const adoptSuggestionToScript = useAppStore((s) => s.adoptSuggestionToScript);
   const activeCustomer = useAppStore((s) =>
     s.customers.find((c) => c.id === s.activeCustomerId)
   );
@@ -41,6 +42,8 @@ export function FollowScript() {
     () => callRecords.filter((r) => r.customerId === activeCustomer?.id),
     [callRecords, activeCustomer?.id]
   );
+  const currentUser = useAppStore((s) => s.currentUser);
+  const isQAOrManager = currentUser.role === "qa" || currentUser.role === "manager";
 
   const stages: ScriptStage[] = [
     "opening",
@@ -108,7 +111,11 @@ export function FollowScript() {
   };
 
   const handleAdoptSuggestion = (id: string) => {
-    updateScriptSuggestionStatus(id, "adopted");
+    if (activeScript && isQAOrManager) {
+      adoptSuggestionToScript(id, activeScript.id);
+    } else {
+      updateScriptSuggestionStatus(id, "adopted");
+    }
   };
 
   const handleRejectSuggestion = (id: string) => {
@@ -273,6 +280,43 @@ export function FollowScript() {
                       </div>
                     </div>
                   )}
+
+                  {activeScript.adoptedContents.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-blue-600 mb-2 flex items-center gap-1">
+                        <CheckCircle size={12} />
+                        团队采纳建议
+                        <span className="text-blue-400 font-normal ml-1">
+                          （{activeScript.adoptedContents.length}条）
+                        </span>
+                      </div>
+                      <div className="space-y-2.5">
+                        {activeScript.adoptedContents.map((adopted) => (
+                          <div
+                            key={adopted.id}
+                            className="card p-3 bg-gradient-to-br from-blue-50/60 to-white border-l-4 border-l-blue-400"
+                          >
+                            <div className="text-sm text-neutral-700 leading-relaxed mb-2">
+                              {adopted.content}
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-neutral-500">
+                              <span className="flex items-center gap-1">
+                                <User size={10} />
+                                {adopted.adoptedByName}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock size={10} />
+                                {dayjs(adopted.adoptedAt).format("MM-DD HH:mm")}
+                              </span>
+                              <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
+                                已入脚本库
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -334,10 +378,16 @@ export function FollowScript() {
                                 onClick={() =>
                                   handleAdoptSuggestion(suggestion.id)
                                 }
-                                className="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-[11px] flex items-center gap-1 transition-colors border border-emerald-200"
+                                className={cn(
+                                  "px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1 transition-colors border",
+                                  isQAOrManager
+                                    ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-emerald-200"
+                                    : "bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
+                                )}
+                                title={isQAOrManager ? "采纳并追加到正式脚本草稿" : "仅个人标记采纳，不会修改正式脚本"}
                               >
                                 <CheckCircle size={12} />
-                                采纳
+                                {isQAOrManager ? "采纳并入脚本库" : "采纳（仅个人）"}
                               </button>
                               <button
                                 onClick={() =>
@@ -349,6 +399,11 @@ export function FollowScript() {
                                 忽略
                               </button>
                             </div>
+                            {isQAOrManager && (
+                              <div className="mt-1.5 text-[10px] text-emerald-600 bg-emerald-50 rounded px-2 py-0.5 inline-block">
+                                💡 您的采纳将追加到正式脚本草稿，供全员参考
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))

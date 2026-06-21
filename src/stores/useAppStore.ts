@@ -7,6 +7,8 @@ import type {
   Employee,
   Script,
   ScriptSuggestion,
+  ScriptAdoptedContent,
+  TodoTask,
   WindowState,
   WindowKey,
   CallResult,
@@ -34,6 +36,7 @@ interface AppState {
   employees: Employee[];
   scripts: Script[];
   scriptSuggestions: ScriptSuggestion[];
+  todoTasks: TodoTask[];
   windows: WindowState[];
   activeCustomerId: string | null;
   activeCallId: string | null;
@@ -51,6 +54,11 @@ interface AppState {
   claimCustomers: (customerIds: string[]) => void;
   releaseCustomer: (customerId: string) => void;
   markCustomerInvalid: (customerId: string) => void;
+  assignCustomers: (data: {
+    customerIds: string[];
+    assigneeIds: string[];
+    distributeEvenly?: boolean;
+  }) => void;
 
   createBooking: (data: Partial<Booking>) => void;
   updateBookingStatus: (id: string, status: Booking["status"]) => void;
@@ -66,6 +74,13 @@ interface AppState {
     id: string,
     status: ScriptSuggestion["status"]
   ) => void;
+  adoptSuggestionToScript: (suggestionId: string, scriptId: string) => void;
+
+  addTodoTask: (data: Omit<TodoTask, "id" | "status" | "createdAt"> & {
+    status?: TodoTask["status"];
+  }) => void;
+  completeTodoTask: (id: string) => void;
+  updateTodoTask: (id: string, data: Partial<TodoTask>) => void;
 
   openWindow: (key: WindowKey) => void;
   closeWindow: (key: WindowKey) => void;
@@ -113,6 +128,36 @@ const initialScriptSuggestions: ScriptSuggestion[] = [
   },
 ];
 
+const initialTodoTasks: TodoTask[] = (() => {
+  const tasks: TodoTask[] = [];
+  const todayStart = new Date();
+  todayStart.setHours(9, 0, 0, 0);
+
+  const customersWithFollowUp = initialCustomers.filter(
+    (c) => c.claimedBy === "emp_1" && c.callCount > 0
+  ).slice(0, 4);
+
+  customersWithFollowUp.forEach((c, i) => {
+    const scheduledTime = new Date(todayStart.getTime() + i * 90 * 60 * 1000);
+    if (scheduledTime > new Date()) {
+      tasks.push({
+        id: `todo_${i + 1}`,
+        customerId: c.id,
+        customerName: c.name,
+        phoneMasked: c.phoneMasked,
+        employeeId: "emp_1",
+        scheduledTime: scheduledTime.toISOString(),
+        taskType: "follow_up",
+        notes: "跟进上次沟通的项目意向",
+        status: "pending",
+        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+  });
+
+  return tasks;
+})();
+
 export const useAppStore = create<AppState>((set, get) => ({
   currentUser: mockEmployees[0],
   customers: initialCustomers,
@@ -122,6 +167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   employees: mockEmployees,
   scripts: mockScripts,
   scriptSuggestions: initialScriptSuggestions,
+  todoTasks: initialTodoTasks,
   windows: initialWindows,
   activeCustomerId: initialCustomers[2]?.id ?? null,
   activeCallId: null,
@@ -239,6 +285,33 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  assignCustomers: ({ customerIds, assigneeIds, distributeEvenly }) => {
+    set((state) => {
+      if (assigneeIds.length === 1 || !distributeEvenly) {
+        const assigneeId = assigneeIds[0];
+        return {
+          customers: state.customers.map((c) =>
+            customerIds.includes(c.id) ? { ...c, claimedBy: assigneeId } : c
+          ),
+        };
+      } else {
+        const shuffled = [...customerIds].sort(() => Math.random() - 0.5);
+        const perPerson = Math.ceil(shuffled.length / assigneeIds.length);
+        const assignmentMap = new Map<string, string>();
+        shuffled.forEach((custId, i) => {
+          const assigneeIdx = Math.floor(i / perPerson);
+          assignmentMap.set(custId, assigneeIds[assigneeIdx]);
+        });
+        return {
+          customers: state.customers.map((c) => {
+            const assignee = assignmentMap.get(c.id);
+            return assignee ? { ...c, claimedBy: assignee } : c;
+          }),
+        };
+      }
+    });
+  },
+
   createBooking: (data) => {
     const newBooking: Booking = {
       id: `bk_${Date.now()}`,
@@ -315,6 +388,70 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  adoptSuggestionToScript: (suggestionId, scriptId) => {
+    const { currentUser, scriptSuggestions } = get();
+    const suggestion = scriptSuggestions.find((s) => s.id === suggestionId);
+    if (!suggestion) return;
+
+    const adoptedContent: ScriptAdoptedContent = {
+      id: `adopted_${Date.now()}`,
+      content: suggestion.content,
+      sourceSuggestionId: suggestionId,
+      adoptedBy: currentUser.id,
+      adoptedByName: currentUser.name,
+      adoptedAt: new Date().toISOString(),
+    };
+
+    set((state) => ({
+      scripts: state.scripts.map((s) =>
+        s.id === scriptId
+          ? { ...s, adoptedContents: [...s.adoptedContents, adoptedContent] }
+          : s
+      ),
+      scriptSuggestions: state.scriptSuggestions.map((s) =>
+        s.id === suggestionId
+          ? {
+              ...s,
+              status: "adopted",
+              adoptedBy: currentUser.id,
+              adoptedByName: currentUser.name,
+              adoptedAt: new Date().toISOString(),
+            }
+          : s
+      ),
+    }));
+  },
+
+  addTodoTask: (data) => {
+    const newTask: TodoTask = {
+      id: `todo_${Date.now()}`,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      ...data,
+    };
+    set((state) => ({
+      todoTasks: [newTask, ...state.todoTasks],
+    }));
+  },
+
+  completeTodoTask: (id) => {
+    set((state) => ({
+      todoTasks: state.todoTasks.map((t) =>
+        t.id === id
+          ? { ...t, status: "completed", completedAt: new Date().toISOString() }
+          : t
+      ),
+    }));
+  },
+
+  updateTodoTask: (id, data) => {
+    set((state) => ({
+      todoTasks: state.todoTasks.map((t) =>
+        t.id === id ? { ...t, ...data } : t
+      ),
+    }));
+  },
+
   openWindow: (key) => {
     set((state) => {
       const maxZ = Math.max(...state.windows.map((w) => w.zIndex), 0);
@@ -368,6 +505,9 @@ export function useFilteredCustomers(filters: {
   keyword?: string;
   onlyMyClaimed?: boolean;
   projects?: string[];
+  onlyUnclaimed?: boolean;
+  createTimeFrom?: string;
+  createTimeTo?: string;
 }) {
   const allCustomers = useAppStore((s) => s.customers);
   const currentUser = useAppStore((s) => s.currentUser);
@@ -390,6 +530,15 @@ export function useFilteredCustomers(filters: {
       }
     }
     if (filters.onlyMyClaimed && c.claimedBy !== currentUser.id) {
+      return false;
+    }
+    if (filters.onlyUnclaimed && c.claimedBy) {
+      return false;
+    }
+    if (filters.createTimeFrom && c.createTime < filters.createTimeFrom) {
+      return false;
+    }
+    if (filters.createTimeTo && c.createTime > filters.createTimeTo + "T23:59:59") {
       return false;
     }
     return true;

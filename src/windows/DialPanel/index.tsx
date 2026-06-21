@@ -50,6 +50,9 @@ export function DialPanel() {
   const openWindow = useAppStore((s) => s.openWindow);
   const createBooking = useAppStore((s) => s.createBooking);
   const currentUser = useAppStore((s) => s.currentUser);
+  const todoTasks = useAppStore((s) => s.todoTasks);
+  const addTodoTask = useAppStore((s) => s.addTodoTask);
+  const completeTodoTask = useAppStore((s) => s.completeTodoTask);
 
   const consultants = useMemo(
     () => employees.filter((e) => e.role === "agent" || e.department.includes("咨询")),
@@ -146,7 +149,7 @@ export function DialPanel() {
   };
 
   const handleSave = () => {
-    if (!activeCustomerId) return;
+    if (!activeCustomerId || !activeCustomer) return;
 
     const validationErrors = validateForm();
     if (validationErrors.length > 0) {
@@ -185,6 +188,39 @@ export function DialPanel() {
         bookingTime: nextFollowTimeISO || dayjs().add(1, "day").toISOString(),
         project: selectedProjects[0] || activeCustomer.projectInterest[0] || "",
         notes: consultantNotes || notes || "",
+      });
+    }
+
+    todoTasks
+      .filter(
+        (t) =>
+          t.customerId === activeCustomerId &&
+          t.employeeId === currentUser.id &&
+          t.status === "pending"
+      )
+      .forEach((t) => completeTodoTask(t.id));
+
+    if (result === "considering" && nextFollowTimeISO) {
+      addTodoTask({
+        customerId: activeCustomer.id,
+        customerName: activeCustomer.name,
+        phoneMasked: activeCustomer.phoneMasked,
+        employeeId: currentUser.id,
+        scheduledTime: nextFollowTimeISO,
+        taskType: "follow_up",
+        notes: notes || undefined,
+      });
+    }
+
+    if (result === "booked" && nextFollowTimeISO) {
+      addTodoTask({
+        customerId: activeCustomer.id,
+        customerName: activeCustomer.name,
+        phoneMasked: activeCustomer.phoneMasked,
+        employeeId: currentUser.id,
+        scheduledTime: nextFollowTimeISO,
+        taskType: "booking",
+        notes: `预约${bookingBranch ? BRANCH_LABELS[bookingBranch as Branch] : ""} · ${consultantName}`,
       });
     }
 

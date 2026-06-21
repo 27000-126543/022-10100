@@ -14,6 +14,12 @@ import {
   ChevronDown,
   X,
   SlidersHorizontal,
+  UserPlus,
+  Users,
+  CalendarRange,
+  AlertCircle,
+  CheckCircle2,
+  GripVertical,
 } from "lucide-react";
 import { WindowFrame } from "../../components/layout/WindowFrame";
 import { useAppStore, useFilteredCustomers } from "../../stores/useAppStore";
@@ -24,6 +30,7 @@ import {
   type Channel,
   type Customer,
   type CustomerStatus,
+  type Employee,
 } from "../../types";
 import { cn } from "../../lib/utils";
 import dayjs from "dayjs";
@@ -56,27 +63,46 @@ export function CustomerPool() {
   const [channelFilter, setChannelFilter] = useState<Channel | "all">("all");
   const [projectFilters, setProjectFilters] = useState<string[]>([]);
   const [onlyMine, setOnlyMine] = useState(true);
+  const [onlyUnclaimed, setOnlyUnclaimed] = useState(false);
   const [showProjectFilter, setShowProjectFilter] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [createTimeFrom, setCreateTimeFrom] = useState("");
+  const [createTimeTo, setCreateTimeTo] = useState("");
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const [distributeEvenly, setDistributeEvenly] = useState(false);
+  const [assignSuccess, setAssignSuccess] = useState(false);
 
   const setActiveCustomer = useAppStore((s) => s.setActiveCustomer);
   const activeCustomerId = useAppStore((s) => s.activeCustomerId);
   const claimCustomers = useAppStore((s) => s.claimCustomers);
   const markCustomerInvalid = useAppStore((s) => s.markCustomerInvalid);
+  const assignCustomers = useAppStore((s) => s.assignCustomers);
   const openWindow = useAppStore((s) => s.openWindow);
   const currentUser = useAppStore((s) => s.currentUser);
   const allCustomers = useAppStore((s) => s.customers);
+  const employees = useAppStore((s) => s.employees);
+
+  const agents = useMemo(
+    () => employees.filter((e) => e.role === "agent"),
+    [employees]
+  );
+
+  const isManager = currentUser.role === "manager";
 
   const filtered = useFilteredCustomers({
     keyword,
     channels: channelFilter === "all" ? undefined : [channelFilter],
     status: statusFilter === "all" ? undefined : [statusFilter],
     projects: projectFilters.length > 0 ? projectFilters : undefined,
-    onlyMyClaimed: onlyMine,
+    onlyMyClaimed: onlyMine && !onlyUnclaimed,
+    onlyUnclaimed,
+    createTimeFrom: createTimeFrom || undefined,
+    createTimeTo: createTimeTo || undefined,
   });
 
   const stats = useMemo(() => {
-    const base = filtered.length > 0 ? filtered : allCustomers.filter((c) => c.claimedBy === currentUser.id);
+    const base = filtered;
     const today = dayjs().format("YYYY-MM-DD");
     const todayCalled = base.filter(
       (c) => c.lastCallTime && dayjs(c.lastCallTime).format("YYYY-MM-DD") === today
@@ -84,13 +110,13 @@ export function CustomerPool() {
     const booked = base.filter((c) => c.status === "booked");
     const pending = base.filter((c) => c.callCount === 0);
     return {
-      total: filtered.length > 0 ? filtered.length : allCustomers.filter((c) => c.claimedBy === currentUser.id).length,
+      total: filtered.length,
       pending: pending.length,
       called: todayCalled.length,
       booked: booked.length,
       rate: todayCalled.length > 0 ? ((booked.length / Math.max(todayCalled.length, 1)) * 100).toFixed(1) : "0",
     };
-  }, [filtered, allCustomers, currentUser.id]);
+  }, [filtered]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -121,6 +147,29 @@ export function CustomerPool() {
     setSelectedIds(new Set());
   };
 
+  const toggleAssignee = (empId: string) => {
+    setSelectedAssignees((prev) =>
+      prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
+    );
+  };
+
+  const handleAssign = () => {
+    if (selectedIds.size === 0 || selectedAssignees.length === 0) return;
+    assignCustomers({
+      customerIds: Array.from(selectedIds),
+      assigneeIds: selectedAssignees,
+      distributeEvenly: selectedAssignees.length > 1 && distributeEvenly,
+    });
+    setAssignSuccess(true);
+    setTimeout(() => {
+      setAssignSuccess(false);
+      setShowAssignModal(false);
+      setSelectedIds(new Set());
+      setSelectedAssignees([]);
+      setDistributeEvenly(false);
+    }, 1500);
+  };
+
   const toggleProject = (proj: string) => {
     setProjectFilters((prev) =>
       prev.includes(proj) ? prev.filter((p) => p !== proj) : [...prev, proj]
@@ -136,6 +185,11 @@ export function CustomerPool() {
     { label: "已预约数", value: stats.booked, icon: HandCoins, color: "text-emerald-600", bg: "bg-emerald-50" },
     { label: "预约转化率", value: `${stats.rate}%`, icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50" },
   ];
+
+  const getAssigneeName = (claimedBy?: string) => {
+    if (!claimedBy) return "未分配";
+    return agents.find((e) => e.id === claimedBy)?.name || "未知";
+  };
 
   return (
     <WindowFrame windowKey="customer-pool" title="客户池" iconName="Users">
@@ -226,15 +280,65 @@ export function CustomerPool() {
               )}
             </div>
 
-            <label className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-neutral-50 border border-neutral-200 text-xs text-neutral-600 cursor-pointer hover:bg-neutral-100">
-              <input
-                type="checkbox"
-                checked={onlyMine}
-                onChange={(e) => setOnlyMine(e.target.checked)}
-                className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
-              />
-              只看我领取的
-            </label>
+            {isManager && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-violet-50 border border-violet-200">
+                <CalendarRange size={13} className="text-violet-600" />
+                <input
+                  type="date"
+                  value={createTimeFrom}
+                  onChange={(e) => setCreateTimeFrom(e.target.value)}
+                  className="text-xs bg-transparent border-none text-neutral-700 focus:outline-none w-24"
+                  placeholder="创建日期起"
+                />
+                <span className="text-violet-400">→</span>
+                <input
+                  type="date"
+                  value={createTimeTo}
+                  onChange={(e) => setCreateTimeTo(e.target.value)}
+                  className="text-xs bg-transparent border-none text-neutral-700 focus:outline-none w-24"
+                  placeholder="创建日期止"
+                />
+                {(createTimeFrom || createTimeTo) && (
+                  <button
+                    onClick={() => {
+                      setCreateTimeFrom("");
+                      setCreateTimeTo("");
+                    }}
+                    className="text-violet-400 hover:text-red-500"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {isManager ? (
+              <label className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-neutral-50 border border-neutral-200 text-xs text-neutral-600 cursor-pointer hover:bg-neutral-100">
+                <input
+                  type="checkbox"
+                  checked={onlyUnclaimed}
+                  onChange={(e) => {
+                    setOnlyUnclaimed(e.target.checked);
+                    if (e.target.checked) setOnlyMine(false);
+                  }}
+                  className="rounded border-neutral-300 text-violet-600 focus:ring-violet-500"
+                />
+                只看未分配
+              </label>
+            ) : (
+              <label className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-neutral-50 border border-neutral-200 text-xs text-neutral-600 cursor-pointer hover:bg-neutral-100">
+                <input
+                  type="checkbox"
+                  checked={onlyMine}
+                  onChange={(e) => {
+                    setOnlyMine(e.target.checked);
+                    if (e.target.checked) setOnlyUnclaimed(false);
+                  }}
+                  className="rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                />
+                只看我领取的
+              </label>
+            )}
           </div>
 
           {projectFilters.length > 0 && (
@@ -296,14 +400,25 @@ export function CustomerPool() {
             </select>
 
             <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={handleBatchClaim}
-                disabled={selectedIds.size === 0}
-                className="btn-primary text-xs py-1.5 px-3 disabled:opacity-50"
-              >
-                <HandCoins size={13} />
-                批量领取 ({selectedIds.size})
-              </button>
+              {isManager ? (
+                <button
+                  onClick={() => setShowAssignModal(true)}
+                  disabled={selectedIds.size === 0}
+                  className="px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all disabled:opacity-50 bg-violet-600 text-white hover:bg-violet-700 shadow-sm"
+                >
+                  <UserPlus size={13} />
+                  批量分配 ({selectedIds.size})
+                </button>
+              ) : (
+                <button
+                  onClick={handleBatchClaim}
+                  disabled={selectedIds.size === 0}
+                  className="btn-primary text-xs py-1.5 px-3 disabled:opacity-50"
+                >
+                  <HandCoins size={13} />
+                  批量领取 ({selectedIds.size})
+                </button>
+              )}
               <button className="btn-secondary text-xs py-1.5 px-3">
                 <RefreshCw size={13} />
                 刷新
@@ -331,6 +446,9 @@ export function CustomerPool() {
                 <th className="px-3 py-2.5 font-medium">拨打</th>
                 <th className="px-3 py-2.5 font-medium">最后跟进</th>
                 <th className="px-3 py-2.5 font-medium">状态</th>
+                {isManager && (
+                  <th className="px-3 py-2.5 font-medium">归属坐席</th>
+                )}
                 <th className="px-3 py-2.5 font-medium w-20">操作</th>
               </tr>
             </thead>
@@ -416,6 +534,16 @@ export function CustomerPool() {
                     <td className="px-3 py-2">
                       <StatusBadge status={customer.status} />
                     </td>
+                    {isManager && (
+                      <td className="px-3 py-2">
+                        <span className={cn(
+                          "text-xs",
+                          customer.claimedBy ? "text-neutral-600" : "text-neutral-400"
+                        )}>
+                          {getAssigneeName(customer.claimedBy)}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => markCustomerInvalid(customer.id)}
@@ -431,7 +559,7 @@ export function CustomerPool() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center text-neutral-400 text-sm">
+                  <td colSpan={isManager ? 9 : 8} className="py-16 text-center text-neutral-400 text-sm">
                     暂无符合条件的客资
                     {projectFilters.length > 0 && (
                       <div className="text-xs mt-2 text-rose-500">
@@ -453,10 +581,160 @@ export function CustomerPool() {
                 · 含项目筛选 {projectFilters.length} 项
               </span>
             )}
+            {isManager && onlyUnclaimed && (
+              <span className="text-violet-500">· 未分配</span>
+            )}
           </div>
           <span>已选择 <span className="font-semibold text-neutral-700">{selectedIds.size}</span> 条</span>
         </div>
       </div>
+
+      {showAssignModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[100] flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col animate-fade-in">
+            <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-neutral-800 flex items-center gap-2">
+                  <UserPlus size={18} className="text-violet-600" />
+                  批量分配客资
+                </h3>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  将 {selectedIds.size} 条客资分配给坐席跟进
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAssignModal(false)}
+                className="text-neutral-400 hover:text-neutral-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-5 space-y-5">
+              {assignSuccess ? (
+                <div className="py-10 flex flex-col items-center justify-center">
+                  <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-3">
+                    <CheckCircle2 size={32} className="text-emerald-500" />
+                  </div>
+                  <div className="text-lg font-semibold text-emerald-700">分配成功！</div>
+                  <div className="text-sm text-neutral-500 mt-1">
+                    {selectedIds.size} 条客资已分配给 {selectedAssignees.length} 名坐席
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="p-4 rounded-lg bg-violet-50 border border-violet-100">
+                    <div className="text-xs font-medium text-violet-700 mb-2 flex items-center gap-1">
+                      <GripVertical size={12} />
+                      已选中客户（{selectedIds.size} 条）
+                    </div>
+                    <div className="text-xs text-violet-600">
+                      筛选条件：{channelFilter === "all" ? "全部渠道" : CHANNEL_LABELS[channelFilter]}
+                      {projectFilters.length > 0 && ` · ${projectFilters.length}个项目`}
+                      {statusFilter !== "all" && ` · ${STATUS_FILTERS.find((s) => s.value === statusFilter)?.label}`}
+                      {onlyUnclaimed && " · 未分配"}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-neutral-700 mb-2.5 block flex items-center gap-1">
+                      <Users size={13} className="text-violet-600" />
+                      选择分配对象 <span className="text-red-500">*</span>
+                    </label>
+                    <div className="grid grid-cols-2 gap-2 max-h-56 overflow-auto pr-1">
+                      {agents.map((agent) => {
+                        const isSelected = selectedAssignees.includes(agent.id);
+                        const stats = agent.stats;
+                        return (
+                          <button
+                            key={agent.id}
+                            onClick={() => toggleAssignee(agent.id)}
+                            className={cn(
+                              "p-3 rounded-lg text-left border-2 transition-all",
+                              isSelected
+                                ? "border-violet-500 bg-violet-50 shadow-sm"
+                                : "border-neutral-200 bg-white hover:border-neutral-300"
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className={cn(
+                                "w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold",
+                                isSelected ? "bg-violet-500" : "bg-gradient-to-br from-primary-400 to-rose-400"
+                              )}>
+                                {agent.name.charAt(0)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-neutral-800 truncate">
+                                  {agent.name}
+                                </div>
+                                <div className="text-[10px] text-neutral-500 truncate">
+                                  {agent.department} · 转化 {stats?.conversionRate || 0}%
+                                </div>
+                              </div>
+                              {isSelected && (
+                                <CheckCircle2 size={16} className="text-violet-500 flex-shrink-0" />
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {selectedAssignees.length > 1 && (
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={distributeEvenly}
+                          onChange={(e) => setDistributeEvenly(e.target.checked)}
+                          className="rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                        />
+                        <div>
+                          <span className="text-xs font-medium text-amber-800">平均分配</span>
+                          <p className="text-[11px] text-amber-700 mt-0.5">
+                            {selectedIds.size} 条客资随机打乱后，平均分配给 {selectedAssignees.length} 名坐席
+                          </p>
+                        </div>
+                      </label>
+                    </div>
+                  )}
+
+                  {selectedAssignees.length === 0 && (
+                    <div className="flex items-center gap-2 text-xs text-red-500 bg-red-50 p-3 rounded-lg">
+                      <AlertCircle size={14} />
+                      请至少选择一名坐席
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {!assignSuccess && (
+              <div className="px-5 py-4 border-t border-neutral-200 flex items-center justify-between bg-neutral-50 rounded-b-xl">
+                <div className="text-xs text-neutral-500">
+                  已选 {selectedIds.size} 条 · {selectedAssignees.length} 名坐席
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAssignModal(false)}
+                    className="px-4 py-2 rounded-md text-sm text-neutral-600 hover:bg-neutral-100 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleAssign}
+                    disabled={selectedAssignees.length === 0}
+                    className="px-5 py-2 rounded-md text-sm font-medium bg-violet-600 text-white hover:bg-violet-700 transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    确认分配
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </WindowFrame>
   );
 }

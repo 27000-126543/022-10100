@@ -1,5 +1,6 @@
 import { TopBar } from "./components/layout/TopBar";
 import { DockBar } from "./components/layout/DockBar";
+import { TodayTodoList } from "./components/TodayTodoList";
 import { DialPanel } from "./windows/DialPanel";
 import { CustomerPool } from "./windows/CustomerPool";
 import { FollowScript } from "./windows/FollowScript";
@@ -14,6 +15,7 @@ export default function App() {
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-neutral-100">
       <TopBar />
+      <TodayTodoList />
 
       <div className="flex-1 relative overflow-hidden">
         <div
