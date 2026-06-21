@@ -109,14 +109,18 @@ export function CustomerPool() {
     );
     const booked = base.filter((c) => c.status === "booked");
     const pending = base.filter((c) => c.callCount === 0);
+    const unclaimed = base.filter((c) => !c.claimedBy);
+    const myClaimed = base.filter((c) => c.claimedBy === currentUser.id);
     return {
       total: filtered.length,
       pending: pending.length,
       called: todayCalled.length,
       booked: booked.length,
+      unclaimed: unclaimed.length,
+      myClaimed: myClaimed.length,
       rate: todayCalled.length > 0 ? ((booked.length / Math.max(todayCalled.length, 1)) * 100).toFixed(1) : "0",
     };
-  }, [filtered]);
+  }, [filtered, currentUser.id]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -178,13 +182,21 @@ export function CustomerPool() {
 
   const clearProjectFilters = () => setProjectFilters([]);
 
-  const statCards = [
-    { label: "筛选后客资", value: stats.total, icon: UsersIcon, color: "text-violet-600", bg: "bg-violet-50" },
-    { label: "待拨打数", value: stats.pending, icon: Phone, color: "text-blue-600", bg: "bg-blue-50" },
-    { label: "今日已拨打", value: stats.called, icon: UserCheck, color: "text-primary-600", bg: "bg-primary-50" },
-    { label: "已预约数", value: stats.booked, icon: HandCoins, color: "text-emerald-600", bg: "bg-emerald-50" },
-    { label: "预约转化率", value: `${stats.rate}%`, icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50" },
-  ];
+  const statCards = isManager
+    ? [
+        { label: "筛选后客资", value: stats.total, icon: UsersIcon, color: "text-violet-600", bg: "bg-violet-50" },
+        { label: "未分配数量", value: stats.unclaimed, icon: UserPlus, color: "text-purple-600", bg: "bg-purple-50" },
+        { label: "待拨打数", value: stats.pending, icon: Phone, color: "text-blue-600", bg: "bg-blue-50" },
+        { label: "已预约数", value: stats.booked, icon: HandCoins, color: "text-emerald-600", bg: "bg-emerald-50" },
+        { label: "预约转化率", value: `${stats.rate}%`, icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50" },
+      ]
+    : [
+        { label: "筛选后客资", value: stats.total, icon: UsersIcon, color: "text-violet-600", bg: "bg-violet-50" },
+        { label: "我的待跟进", value: stats.myClaimed, icon: UserCheck, color: "text-primary-600", bg: "bg-primary-50" },
+        { label: "待拨打数", value: stats.pending, icon: Phone, color: "text-blue-600", bg: "bg-blue-50" },
+        { label: "已预约数", value: stats.booked, icon: HandCoins, color: "text-emerald-600", bg: "bg-emerald-50" },
+        { label: "预约转化率", value: `${stats.rate}%`, icon: TrendingUp, color: "text-amber-600", bg: "bg-amber-50" },
+      ];
 
   const getAssigneeName = (claimedBy?: string) => {
     if (!claimedBy) return "未分配";
@@ -194,7 +206,7 @@ export function CustomerPool() {
   return (
     <WindowFrame windowKey="customer-pool" title="客户池" iconName="Users">
       <div className="h-full flex flex-col">
-        <div className="grid grid-cols-5 gap-3 p-4 border-b border-neutral-200 bg-gradient-to-b from-neutral-50 to-white">
+        <div className="grid grid-cols-5 gap-2.5 p-3 border-b border-neutral-200 bg-gradient-to-b from-neutral-50 to-white">
           {statCards.map(({ label, value, icon: Icon, color, bg }) => (
             <div key={label} className="card p-3 flex items-center gap-3">
               <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", bg)}>

@@ -46,6 +46,7 @@ interface AppState {
   stats: StatsData;
 
   setActiveCustomer: (id: string | null) => void;
+  setCurrentUser: (userId: string) => void;
   startCall: (customerId: string) => void;
   endCall: () => void;
   incrementCallDuration: () => void;
@@ -260,6 +261,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
+  setCurrentUser: (userId) => {
+    const user = get().employees.find((e) => e.id === userId);
+    if (user) {
+      set({ currentUser: user });
+    }
+  },
+
   claimCustomers: (customerIds) => {
     const employee = get().currentUser;
     set((state) => ({
@@ -381,10 +389,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateScriptSuggestionStatus: (id, status) => {
+    const { currentUser } = get();
     set((state) => ({
-      scriptSuggestions: state.scriptSuggestions.map((s) =>
-        s.id === id ? { ...s, status } : s
-      ),
+      scriptSuggestions: state.scriptSuggestions.map((s) => {
+        if (s.id !== id) return s;
+        const update: Partial<ScriptSuggestion> = { status };
+        if (status === "adopted") {
+          update.adoptedBy = currentUser.id;
+          update.adoptedByName = currentUser.name;
+          update.adoptedAt = new Date().toISOString();
+        }
+        return { ...s, ...update };
+      }),
     }));
   },
 

@@ -35,12 +35,15 @@ export function TodayTodoList() {
     const timer = setInterval(() => {
       setTick((t) => t + 1);
       const now = new Date();
+      const todayStart = dayjs().startOf("day");
+      const todayEnd = dayjs().endOf("day");
       todoTasks.forEach((task) => {
+        const scheduled = dayjs(task.scheduledTime);
         if (
           task.status === "pending" &&
           task.employeeId === currentUser.id &&
-          new Date(task.scheduledTime) < now &&
-          dayjs(task.scheduledTime).isSame(now, "day")
+          scheduled.isBetween(todayStart, todayEnd, null, "[]") &&
+          scheduled.isBefore(dayjs(now))
         ) {
           updateTodoTask(task.id, { status: "missed" });
         }
@@ -50,7 +53,13 @@ export function TodayTodoList() {
   }, [todoTasks, currentUser.id, updateTodoTask]);
 
   const myTasks = useMemo(() => {
-    return todoTasks.filter((t) => t.employeeId === currentUser.id);
+    const todayStart = dayjs().startOf("day");
+    const todayEnd = dayjs().endOf("day");
+    return todoTasks.filter((t) => {
+      if (t.employeeId !== currentUser.id) return false;
+      const scheduled = dayjs(t.scheduledTime);
+      return scheduled.isBetween(todayStart, todayEnd, null, "[]");
+    });
   }, [todoTasks, currentUser.id]);
 
   const sortedTasks = useMemo(() => {
