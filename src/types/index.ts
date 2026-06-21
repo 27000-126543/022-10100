@@ -84,6 +84,18 @@ export interface Booking {
   createTime: string;
 }
 
+export interface ScriptSuggestion {
+  id: string;
+  stage: ScriptStage;
+  content: string;
+  sourceQAReviewId?: string;
+  sourceCallRecordId?: string;
+  customerName?: string;
+  employeeName?: string;
+  status: "pending" | "adopted" | "rejected";
+  createdAt: string;
+}
+
 export interface QAReviewItem {
   id: string;
   callRecordId: string;
@@ -102,6 +114,7 @@ export interface QAReviewItem {
   issues: string[];
   feedback: string;
   scriptSuggestion?: string;
+  scriptSuggestionStage?: ScriptStage;
   reviewerId: string;
   reviewTime: string;
 }

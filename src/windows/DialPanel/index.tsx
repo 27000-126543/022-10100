@@ -10,10 +10,14 @@ import {
   Tag,
   DollarSign,
   ChevronRight,
+  MapPin,
+  UserCheck,
+  FileText,
+  AlertCircle,
 } from "lucide-react";
 import { WindowFrame } from "../../components/layout/WindowFrame";
 import { useAppStore } from "../../stores/useAppStore";
-import { useCallTimer, formatDuration } from "../../hooks/useCallTimer";
+import { useCallTimer } from "../../hooks/useCallTimer";
 import {
   CALL_RESULT_LABELS,
   CALL_RESULT_COLORS,
@@ -22,7 +26,9 @@ import {
   PROJECT_OPTIONS,
   BUDGET_OPTIONS,
   REJECT_REASONS,
+  BRANCH_LABELS,
   type CallResult,
+  type Branch,
 } from "../../types";
 import { cn } from "../../lib/utils";
 import dayjs from "dayjs";
@@ -30,6 +36,7 @@ import dayjs from "dayjs";
 export function DialPanel() {
   const customers = useAppStore((s) => s.customers);
   const activeCustomerId = useAppStore((s) => s.activeCustomerId);
+  const employees = useAppStore((s) => s.employees);
   const activeCustomer = useMemo(
     () => customers.find((c) => c.id === activeCustomerId),
     [customers, activeCustomerId]
@@ -43,6 +50,11 @@ export function DialPanel() {
   const openWindow = useAppStore((s) => s.openWindow);
   const createBooking = useAppStore((s) => s.createBooking);
   const currentUser = useAppStore((s) => s.currentUser);
+
+  const consultants = useMemo(
+    () => employees.filter((e) => e.role === "agent" || e.department.includes("咨询")),
+    [employees]
+  );
 
   const { formatted: timerFormatted } = useCallTimer(isOnCall);
   const displayDuration = useMemo(() => {
@@ -71,6 +83,57 @@ export function DialPanel() {
   const [nextFollowDate, setNextFollowDate] = useState("");
   const [nextFollowTime, setNextFollowTime] = useState("");
   const [notes, setNotes] = useState("");
+  const [bookingBranch, setBookingBranch] = useState<Branch | "">("");
+  const [consultantId, setConsultantId] = useState("");
+  const [consultantNotes, setConsultantNotes] = useState("");
+  const [errors, setErrors] = useState<string[]>([]);
+
+  useEffect(() => {
+    setErrors([]);
+  }, [
+    result,
+    rejectReason,
+    nextFollowDate,
+    nextFollowTime,
+    notes,
+    bookingBranch,
+    consultantId,
+    consultantNotes,
+  ]);
+
+  const validateForm = (): string[] => {
+    const errs: string[] = [];
+    if (["rejected", "no_need"].includes(result) && !rejectReason) {
+      errs.push("请选择拒绝/无需求原因");
+    }
+    if (result === "considering") {
+      const hasSchedule = nextFollowDate && nextFollowTime;
+      const hasNotes = notes.trim().length > 0;
+      if (!hasSchedule && !hasNotes) {
+        errs.push("请填写二次外呼时间或下一步说明");
+      }
+    }
+    if (result === "booked") {
+      if (!bookingBranch) errs.push("请选择预约院区");
+      if (!consultantId) errs.push("请选择交接咨询师");
+      if (!(nextFollowDate && nextFollowTime)) errs.push("请选择预约时间");
+    }
+    return errs;
+  };
+
+  const resetForm = () => {
+    setResult("considering");
+    setRejectReason("");
+    setSelectedProjects([]);
+    setBudget("");
+    setNextFollowDate("");
+    setNextFollowTime("");
+    setNotes("");
+    setBookingBranch("");
+    setConsultantId("");
+    setConsultantNotes("");
+    setErrors([]);
+  };
 
   const handleStartCall = () => {
     if (!activeCustomerId) return;
@@ -85,17 +148,26 @@ export function DialPanel() {
   const handleSave = () => {
     if (!activeCustomerId) return;
 
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0) {
+      setErrors(validationErrors);
+      return;
+    }
+
     let nextFollowTimeISO: string | undefined;
     if (nextFollowDate && nextFollowTime) {
       nextFollowTimeISO = dayjs(`${nextFollowDate} ${nextFollowTime}`).toISOString();
     }
 
+    const consultantName = consultants.find((c) => c.id === consultantId)?.name || "";
+
     saveCallResult({
       result,
-      rejectReason: result === "rejected" || result === "no_need" ? rejectReason : undefined,
+      rejectReason:
+        result === "rejected" || result === "no_need" ? rejectReason : undefined,
       intentProjects: selectedProjects.length > 0 ? selectedProjects : undefined,
       budgetRange: budget || undefined,
-      nextStep: notes || undefined,
+      nextStep: notes || consultantNotes || undefined,
       nextFollowTime: nextFollowTimeISO,
       duration: callDuration,
     });
@@ -107,22 +179,16 @@ export function DialPanel() {
         phoneMasked: activeCustomer.phoneMasked,
         employeeId: currentUser.id,
         employeeName: currentUser.name,
-        consultantId: "emp_3",
-        consultantName: "张晓雯",
-        branch: "main",
+        consultantId: consultantId || "emp_3",
+        consultantName: consultantName || "张晓雯",
+        branch: (bookingBranch as Branch) || "main",
         bookingTime: nextFollowTimeISO || dayjs().add(1, "day").toISOString(),
         project: selectedProjects[0] || activeCustomer.projectInterest[0] || "",
-        notes,
+        notes: consultantNotes || notes || "",
       });
     }
 
-    setResult("considering");
-    setRejectReason("");
-    setSelectedProjects([]);
-    setBudget("");
-    setNextFollowDate("");
-    setNextFollowTime("");
-    setNotes("");
+    resetForm();
   };
 
   const toggleProject = (proj: string) => {
@@ -132,7 +198,23 @@ export function DialPanel() {
   };
 
   const showRejectReason = result === "rejected" || result === "no_need";
-  const showBookingFields = result === "booked" || result === "considering";
+  const showBookingFields =
+    result === "booked" || result === "considering";
+  const isBooked = result === "booked";
+
+  const hasError = (field: string) => {
+    if (errors.length === 0) return false;
+    const errMap: Record<string, string[]> = {
+      rejectReason: ["请选择拒绝/无需求原因"],
+      schedule: ["请填写二次外呼时间或下一步说明", "请选择预约时间"],
+      notes: ["请填写二次外呼时间或下一步说明"],
+      branch: ["请选择预约院区"],
+      consultant: ["请选择交接咨询师"],
+    };
+    return Object.entries(errMap).some(([key, msgs]) =>
+      key === field ? errors.some((e) => msgs.includes(e)) : false
+    );
+  };
 
   return (
     <WindowFrame windowKey="dial-panel" title="拨打面板" iconName="Phone">
@@ -146,12 +228,19 @@ export function DialPanel() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-neutral-800">{activeCustomer.name}</span>
-                    <span className={cn("tag", CHANNEL_COLORS[activeCustomer.channel])}>
+                    <span className="font-semibold text-neutral-800">
+                      {activeCustomer.name}
+                    </span>
+                    <span
+                      className={cn("tag", CHANNEL_COLORS[activeCustomer.channel])}
+                    >
                       {CHANNEL_LABELS[activeCustomer.channel]}
                     </span>
                     {activeCustomer.tags.slice(0, 2).map((tag) => (
-                      <span key={tag} className="tag bg-neutral-100 text-neutral-600">
+                      <span
+                        key={tag}
+                        className="tag bg-neutral-100 text-neutral-600"
+                      >
                         {tag}
                       </span>
                     ))}
@@ -197,7 +286,9 @@ export function DialPanel() {
                   onClick={() => setIsMuted(!isMuted)}
                   className={cn(
                     "w-11 h-11 rounded-full flex items-center justify-center transition-all",
-                    isMuted ? "bg-neutral-800 text-white" : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                    isMuted
+                      ? "bg-neutral-800 text-white"
+                      : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
                   )}
                 >
                   {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
@@ -225,6 +316,20 @@ export function DialPanel() {
             </div>
 
             <div className="flex-1 overflow-auto p-4 space-y-4">
+              {errors.length > 0 && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-200 space-y-1">
+                  {errors.map((e, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2 text-xs text-red-600"
+                    >
+                      <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+                      <span>{e}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div>
                 <label className="text-xs font-medium text-neutral-600 mb-1.5 block">
                   通话结果 <span className="text-red-500">*</span>
@@ -237,7 +342,10 @@ export function DialPanel() {
                       className={cn(
                         "px-2 py-2 rounded-md text-xs font-medium transition-all border",
                         result === key
-                          ? cn(CALL_RESULT_COLORS[key], "border-transparent shadow-sm")
+                          ? cn(
+                              CALL_RESULT_COLORS[key],
+                              "border-transparent shadow-sm ring-2 ring-offset-1 ring-primary-400"
+                            )
                           : "bg-white border-neutral-200 text-neutral-600 hover:bg-neutral-50"
                       )}
                     >
@@ -250,19 +358,76 @@ export function DialPanel() {
               {showRejectReason && (
                 <div>
                   <label className="text-xs font-medium text-neutral-600 mb-1.5 block">
-                    拒绝原因
+                    {result === "rejected" ? "拒接原因" : "无需求原因"}{" "}
+                    <span className="text-red-500">*</span>
                   </label>
                   <select
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
-                    className="select"
+                    className={cn(
+                      "select",
+                      hasError("rejectReason") &&
+                        "border-red-400 ring-1 ring-red-200 bg-red-50"
+                    )}
                   >
                     <option value="">请选择原因</option>
                     {REJECT_REASONS.map((r) => (
-                      <option key={r} value={r}>{r}</option>
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
                     ))}
                   </select>
                 </div>
+              )}
+
+              {isBooked && (
+                <>
+                  <div>
+                    <label className="text-xs font-medium text-neutral-600 mb-1.5 flex items-center gap-1">
+                      <MapPin size={12} />
+                      预约院区 <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={bookingBranch}
+                      onChange={(e) => setBookingBranch(e.target.value as Branch)}
+                      className={cn(
+                        "select",
+                        hasError("branch") &&
+                          "border-red-400 ring-1 ring-red-200 bg-red-50"
+                      )}
+                    >
+                      <option value="">请选择院区</option>
+                      {(Object.keys(BRANCH_LABELS) as Branch[]).map((b) => (
+                        <option key={b} value={b}>
+                          {BRANCH_LABELS[b]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-medium text-neutral-600 mb-1.5 flex items-center gap-1">
+                      <UserCheck size={12} />
+                      交接咨询师 <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={consultantId}
+                      onChange={(e) => setConsultantId(e.target.value)}
+                      className={cn(
+                        "select",
+                        hasError("consultant") &&
+                          "border-red-400 ring-1 ring-red-200 bg-red-50"
+                      )}
+                    >
+                      <option value="">请选择咨询师</option>
+                      {consultants.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} · {c.department}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
               )}
 
               {showBookingFields && (
@@ -300,7 +465,9 @@ export function DialPanel() {
                     >
                       <option value="">请选择预算范围</option>
                       {BUDGET_OPTIONS.map((b) => (
-                        <option key={b} value={b}>{b}</option>
+                        <option key={b} value={b}>
+                          {b}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -309,36 +476,76 @@ export function DialPanel() {
                     <label className="text-xs font-medium text-neutral-600 mb-1.5 flex items-center gap-1">
                       <CalendarClock size={12} />
                       {result === "booked" ? "预约时间" : "二次外呼排程"}
+                      {isBooked && <span className="text-red-500">*</span>}
+                      {!isBooked && (
+                        <span className="text-neutral-400 font-normal">
+                          （与下一步说明二选一）
+                        </span>
+                      )}
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                       <input
                         type="date"
                         value={nextFollowDate}
                         onChange={(e) => setNextFollowDate(e.target.value)}
-                        className="input"
+                        className={cn(
+                          "input",
+                          hasError("schedule") &&
+                            "border-red-400 ring-1 ring-red-200 bg-red-50"
+                        )}
                         min={dayjs().format("YYYY-MM-DD")}
                       />
                       <input
                         type="time"
                         value={nextFollowTime}
                         onChange={(e) => setNextFollowTime(e.target.value)}
-                        className="input"
+                        className={cn(
+                          "input",
+                          hasError("schedule") &&
+                            "border-red-400 ring-1 ring-red-200 bg-red-50"
+                        )}
                       />
                     </div>
                   </div>
                 </>
               )}
 
+              {isBooked && (
+                <div>
+                  <label className="text-xs font-medium text-neutral-600 mb-1.5 flex items-center gap-1">
+                    <FileText size={12} />
+                    交接备注
+                    <span className="text-neutral-400 font-normal">（给咨询师看的）</span>
+                  </label>
+                  <textarea
+                    value={consultantNotes}
+                    onChange={(e) => setConsultantNotes(e.target.value)}
+                    rows={2}
+                    placeholder="客户关注点、特殊需求、性格特点等交接信息..."
+                    className="input resize-none"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="text-xs font-medium text-neutral-600 mb-1.5 block">
                   备注 / 下一步
+                  {!isBooked && showBookingFields && (
+                    <span className="text-neutral-400 font-normal ml-1">
+                      （与排程二选一）
+                    </span>
+                  )}
                 </label>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
                   placeholder="记录客户特殊需求、关注点等..."
-                  className="input resize-none"
+                  className={cn(
+                    "input resize-none",
+                    hasError("notes") &&
+                      "border-red-400 ring-1 ring-red-200 bg-red-50"
+                  )}
                 />
               </div>
 

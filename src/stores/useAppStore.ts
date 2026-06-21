@@ -6,11 +6,13 @@ import type {
   QAReviewItem,
   Employee,
   Script,
+  ScriptSuggestion,
   WindowState,
   WindowKey,
   CallResult,
   Channel,
   StatsData,
+  ScriptStage,
 } from "../types";
 import {
   generateMockCustomers,
@@ -31,6 +33,7 @@ interface AppState {
   qaReviews: QAReviewItem[];
   employees: Employee[];
   scripts: Script[];
+  scriptSuggestions: ScriptSuggestion[];
   windows: WindowState[];
   activeCustomerId: string | null;
   activeCallId: string | null;
@@ -54,6 +57,16 @@ interface AppState {
 
   addQAReview: (review: QAReviewItem) => void;
 
+  addScriptSuggestion: (
+    data: Omit<ScriptSuggestion, "id" | "status" | "createdAt"> & {
+      status?: ScriptSuggestion["status"];
+    }
+  ) => void;
+  updateScriptSuggestionStatus: (
+    id: string,
+    status: ScriptSuggestion["status"]
+  ) => void;
+
   openWindow: (key: WindowKey) => void;
   closeWindow: (key: WindowKey) => void;
   minimizeWindow: (key: WindowKey) => void;
@@ -75,6 +88,31 @@ const initialCalls = generateMockCallRecords(initialCustomers, mockEmployees);
 const initialBookings = generateMockBookings(initialCustomers, mockEmployees);
 const initialQAReviews = generateMockQAReviews(initialCalls);
 
+const initialScriptSuggestions: ScriptSuggestion[] = [
+  {
+    id: "suggestion_1",
+    stage: "objection",
+    content: "客户问热玛吉会不会反弹，建议回复：热玛吉是通过射频能量刺激胶原蛋白新生，效果是渐进式的，维持1-2年，配合日常保养能延长效果，不会突然反弹哦。",
+    sourceQAReviewId: "qa_1",
+    sourceCallRecordId: initialCalls[0]?.id,
+    customerName: initialCustomers[0]?.name,
+    employeeName: mockEmployees[0]?.name,
+    status: "pending",
+    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+  },
+  {
+    id: "suggestion_2",
+    stage: "intro",
+    content: "介绍玻尿酸时，可以先问客户最在意的部位，针对性地推荐产品，比如想丰唇用乔雅登极致，填法令纹用瑞蓝2号，这样更专业。",
+    sourceQAReviewId: "qa_2",
+    sourceCallRecordId: initialCalls[1]?.id,
+    customerName: initialCustomers[1]?.name,
+    employeeName: mockEmployees[1]?.name,
+    status: "pending",
+    createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+  },
+];
+
 export const useAppStore = create<AppState>((set, get) => ({
   currentUser: mockEmployees[0],
   customers: initialCustomers,
@@ -83,6 +121,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   qaReviews: initialQAReviews,
   employees: mockEmployees,
   scripts: mockScripts,
+  scriptSuggestions: initialScriptSuggestions,
   windows: initialWindows,
   activeCustomerId: initialCustomers[2]?.id ?? null,
   activeCallId: null,
@@ -244,6 +283,36 @@ export const useAppStore = create<AppState>((set, get) => ({
           : c
       ),
     }));
+    if (review.scriptSuggestion && review.scriptSuggestionStage) {
+      get().addScriptSuggestion({
+        stage: review.scriptSuggestionStage,
+        content: review.scriptSuggestion,
+        sourceQAReviewId: review.id,
+        sourceCallRecordId: review.callRecordId,
+        customerName: review.customerName,
+        employeeName: review.employeeName,
+      });
+    }
+  },
+
+  addScriptSuggestion: (data) => {
+    const newSuggestion: ScriptSuggestion = {
+      id: `suggestion_${Date.now()}`,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      ...data,
+    };
+    set((state) => ({
+      scriptSuggestions: [newSuggestion, ...state.scriptSuggestions],
+    }));
+  },
+
+  updateScriptSuggestionStatus: (id, status) => {
+    set((state) => ({
+      scriptSuggestions: state.scriptSuggestions.map((s) =>
+        s.id === id ? { ...s, status } : s
+      ),
+    }));
   },
 
   openWindow: (key) => {
@@ -298,6 +367,7 @@ export function useFilteredCustomers(filters: {
   status?: Customer["status"][];
   keyword?: string;
   onlyMyClaimed?: boolean;
+  projects?: string[];
 }) {
   const allCustomers = useAppStore((s) => s.customers);
   const currentUser = useAppStore((s) => s.currentUser);
@@ -308,6 +378,10 @@ export function useFilteredCustomers(filters: {
     }
     if (filters.status && filters.status.length > 0 && !filters.status.includes(c.status)) {
       return false;
+    }
+    if (filters.projects && filters.projects.length > 0) {
+      const hasMatch = c.projectInterest.some((p) => filters.projects!.includes(p));
+      if (!hasMatch) return false;
     }
     if (filters.keyword && filters.keyword.trim()) {
       const kw = filters.keyword.trim().toLowerCase();
